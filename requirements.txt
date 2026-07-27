@@ -1,0 +1,4 @@
+pytelegrambotapi
+supabase
+flask
+requests
