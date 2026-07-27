@@ -270,12 +270,12 @@ def cmd_eutop(message):
             except Exception:
                 name = f"Игрок {uid}"
                 
-            text += f"{idx}. [{name}](tg://user?id={uid}) • 🪙 **{format_money(bal)}**\n"
+            # Здесь убрали ссылки — теперь выводятся просто имя и баланс
+            text += f"{idx}. {name} • 🪙 **{format_money(bal)}**\n"
             
         bot.reply_to(message, text, parse_mode="Markdown")
     except Exception as e:
         bot.reply_to(message, "❌ Не удалось загрузить топ игроков.")
-
 
 # --- ОБРАБОТКА БАЛАНСА И ЗАРПЛАТЫ ---
 @bot.message_handler(
