@@ -243,14 +243,14 @@ def cmd_synonyms(message):
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["шпаргалка", "шпора"])
 def send_cheat_sheet(message):
-    photo_file_id = "AgACAgIAAxkBAAFQXDpqaKQHNolijIBfoCiVbMXInXJdewACdhtrG16NSUvtnjU8eSyfSgEAAwIAA3gAAz0E"
-    
     try:
-        bot.send_photo(
-            chat_id=message.chat.id,
-            photo=photo_file_id
-        )
+        with open('shpora.jpg', 'rb') as photo:
+            bot.send_photo(
+                chat_id=message.chat.id,
+                photo=photo
+            )
     except Exception as e:
+        print(f"Ошибка: {e}")  # Эта строчка выведет реальную причину в консоль
         bot.reply_to(message, "❌ Не удалось отправить шпаргалку.")
         
 @bot.message_handler(commands=["eutop", "топ"])
