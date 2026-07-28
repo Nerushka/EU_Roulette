@@ -17,8 +17,8 @@ bot = telebot.TeleBot(TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 MIN_BET = 100
-SALARY_AMOUNT = 5000
-SALARY_COOLDOWN_HOURS = 24
+SALARY_AMOUNT = 15000
+SALARY_COOLDOWN_HOURS = 12
 
 # Регистрация команд в меню Telegram (кнопка "/")
 bot.set_my_commands([
@@ -194,12 +194,14 @@ def cmd_start(message):
     text = (
         "Добро пожаловать в Европейскую рулетку!\n\n"
         "Делай ставки прямо в чате, например: `100 красное` или `1000 к1`\n\n"
-        "Как поделиться с кем нибудь? Ответом `передать 100`\n\n"
+        "Хочешь поделиться банком? Ответом `передать 100`\n\n"
         "• Посмотреть свой счет: `баланс`\n"
-        "• Ежедневный бонус: `получить зарплату`\n"
-        "• Правила и виды ставок: /info\n"
+        "• Получить бонус: `зарплата`\n"
+        "• Посмотреть шпаргалку: `шпора`\n"
+        "• Правила и виды ставок: /rules\n"
         "• Синонимы к ставкам: /synonyms\n"
-        "• Топ игроков: /eutop"
+        "• Топ игроков: /eutop\n\n"
+        "💡 Минимальная ставка: 🪙 100"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -210,20 +212,17 @@ def cmd_info(message):
         "🔴 <b>Основные ставки:</b>\n\n"
         "Красное / Черное (<code>красное</code>, <code>черное</code>)\n"
         "• Множитель: <b>2x</b> | Шанс: <b>48.65%</b>\n\n"
-        "Чёт / Нечёт (<code>чет</code>, <code>нечет</code>)\n"
+        "Чёт / Нечёт (<code>чёт</code>, <code>нёчет</code>)\n"
         "• Множитель: <b>2x</b> | Шанс: <b>48.65%</b>\n\n"
-        "Малые / Большие (<code>1-18</code>, <code>19-36</code>)\n"
+        "1-18 / 19-36 (<code>низ</code>, <code>верх</code>)\n"
         "• Множитель: <b>2x</b> | Шанс: <b>48.65%</b>\n\n"
-        "📊 <b>Колонки и Дюжины:</b>\n\n"
-        "Дюжины — блоки по 12 чисел (<code>д1</code>, <code>д2</code>, <code>д3</code>)\n"
-        "• д1 (1–12), д2 (13–24), д3 (25–36)\n"
+        "📊 <b>Дюжины и колонки:</b>\n\n"
+        "Дюжины (<code>д1</code>, <code>д2</code>, <code>д3</code>)\n"
         "• Множитель: <b>3x</b> | Шанс: <b>32.43%</b>\n\n"
-        "Колонки — горизонтальные ряды на поле (<code>к1</code>, <code>к2</code>, <code>к3</code>)\n"
-        "• к1 (нижний ряд), к2 (средний ряд), к3 (верхний ряд)\n"
+        "Колонки (<code>к1</code>, <code>к2</code>, <code>к3</code>)\n"
         "• Множитель: <b>3x</b> | Шанс: <b>32.43%</b>\n\n"
         "🎯 <b>Точное число</b> (от <code>0</code> до <code>36</code>)\n"
-        "• Множитель: <b>36x</b> | Шанс: <b>2.70%</b>\n\n"
-        "💡 <b>Мин. ставка:</b> 🪙 100"
+        "• Множитель: <b>36x</b> | Шанс: <b>2.70%</b>"
     )
     bot.reply_to(message, text, parse_mode="HTML")
 
@@ -233,16 +232,27 @@ def cmd_synonyms(message):
     text = (
         "💬 <b>Синонимы к ставкам:</b>\n\n"
         "🔴 Красное: <code>красное</code>, <code>красный</code>, <code>red</code>, <code>ред</code>\n"
-        "⚫ Черное: <code>черное</code>, <code>чёрное</code>, <code>черный</code>, <code>блек</code>, <code>блэк</code>\n"
+        "⚫ Черное: <code>черное</code>, <code>черный</code>, <code>блек</code>, <code>блэк</code>\n"
         "⚖️ Чёт / Нечёт: <code>чет</code>, <code>чёт</code> / <code>нечет</code>, <code>нечёт</code>\n"
-        "📉 Малые (1-18): <code>1-18</code>, <code>малые</code>, <code>низ</code>\n"
-        "📈 Большие (19-36): <code>19-36</code>, <code>большие</code>, <code>верх</code>\n"
+        "📉 1-18: <code>1-18</code>, <code>малые</code>, <code>низ</code>\n"
+        "📈 19-36: <code>19-36</code>, <code>большие</code>, <code>верх</code>\n"
         "📊 Дюжины: <code>д1</code>, <code>д2</code>, <code>д3</code>\n"
         "📊 Колонки: <code>к1</code>, <code>к2</code>, <code>к3</code>"
     )
     bot.reply_to(message, text, parse_mode="HTML")
 
-
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["шпаргалка", "шпора"])
+def send_cheat_sheet(message):
+    photo_file_id = "AgACAgIAAxkBAAFQXDpqaKQHNolijIBfoCiVbMXInXJdewACdhtrG16NSUvtnjU8eSyfSgEAAwIAA3MAAz0E"
+    
+    try:
+        bot.send_photo(
+            chat_id=message.chat.id,
+            photo=photo_file_id
+        )
+    except Exception as e:
+        bot.reply_to(message, "❌ Не удалось отправить шпаргалку.")
+        
 @bot.message_handler(commands=["eutop", "топ"])
 def cmd_eutop(message):
     chat_id = message.chat.id
@@ -251,6 +261,7 @@ def cmd_eutop(message):
             supabase.table("EUusers")
             .select("user_id", "balance")
             .eq("chat_id", str(chat_id))
+            .gt("balance", 0)
             .order("balance", desc=True)
             .execute()
         )
@@ -296,7 +307,7 @@ def handle_balance(message):
 
 
 @bot.message_handler(
-    func=lambda m: m.text and m.text.lower().strip() == "получить зарплату"
+    func=lambda m: m.text and m.text.lower().strip() in ["получить зарплату", "зарплата", "зп"]
 )
 def handle_salary(message):
     chat_id = message.chat.id
@@ -403,11 +414,6 @@ def handle_text_messages(message):
     if not sum_str.isdigit():
         return
 
-    amount = int(sum_str)
-    if amount < MIN_BET:
-        bot.reply_to(message, "❌ Минимальная ставка 🪙 100", parse_mode="Markdown")
-        return
-
     raw_bet = " ".join(parts[1:]).lower().replace("ё", "е")
 
     normalized_bet = None
@@ -419,6 +425,11 @@ def handle_text_messages(message):
     if not normalized_bet:
         return
 
+    amount = int(sum_str)
+    if amount < MIN_BET:
+        bot.reply_to(message, "❌ Минимальная ставка 🪙 100", parse_mode="Markdown")
+        return
+        
     chat_id = message.chat.id
     user_id = message.from_user.id
     first_name = message.from_user.first_name
