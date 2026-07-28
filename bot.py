@@ -243,7 +243,7 @@ def cmd_synonyms(message):
 
 @bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["шпаргалка", "шпора"])
 def send_cheat_sheet(message):
-    photo_file_id = "AgACAgIAAxkBAAFQXDpqaKQHNolijIBfoCiVbMXInXJdewACdhtrG16NSUvtnjU8eSyfSgEAAwIAA3MAAz0E"
+    photo_file_id = "AgACAgIAAxkBAAFQXDpqaKQHNolijIBfoCiVbMXInXJdewACdhtrG16NSUvtnjU8eSyfSgEAAwIAA3gAAz0E"
     
     try:
         bot.send_photo(
