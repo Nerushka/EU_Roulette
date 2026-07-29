@@ -23,12 +23,12 @@ SALARY_COOLDOWN_HOURS = 12
 # Регистрация команд в меню Telegram (кнопка "/")
 bot.set_my_commands([
     BotCommand("start", "Главное меню"),
-    BotCommand("info", "Правила и виды ставок"),
+    BotCommand("rules", "Правила и виды ставок"),
     BotCommand("synonyms", "Синонимы к ставкам"),
     BotCommand("eutop", "Топ лучших игроков в чате")
 ])
 
-# Словарь синонимов для ставок
+# Словарь синонимов для внешних ставок
 BET_SYNONYMS = {
     "красное": "красное",
     "красный": "красное",
@@ -79,6 +79,47 @@ READABLE_BET_NAMES = {
     "к3": "третью колонку",
 }
 
+# --- ЖЕСТКИЕ СЛОВАРИ ДОПУСТИМЫХ ВНУТРЕННИХ СТАВОК (КОРТЕЖИ ПО ВОЗРАСТАНИЮ) ---
+VALID_SPLITS = {
+    (1, 2), (2, 3), (4, 5), (5, 6), (7, 8), (8, 9), (10, 11), (11, 12),
+    (13, 14), (14, 15), (16, 17), (17, 18), (19, 20), (20, 21), (22, 23), (23, 24),
+    (25, 26), (26, 27), (28, 29), (29, 30), (31, 32), (32, 33), (34, 35), (35, 36),
+    (1, 4), (2, 5), (3, 6), (4, 7), (5, 8), (6, 9), (7, 10), (8, 11),
+    (9, 12), (10, 13), (11, 14), (12, 15), (13, 16), (14, 17), (15, 18), (16, 19),
+    (17, 20), (18, 21), (19, 22), (20, 23), (21, 24), (22, 25), (23, 26), (24, 27),
+    (25, 28), (26, 29), (27, 30), (28, 31), (29, 32), (30, 33), (31, 34), (32, 35),
+    (33, 36)
+}
+
+VALID_STREETS = {
+    (1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12), (13, 14, 15), (16, 17, 18),
+    (19, 20, 21), (22, 23, 24), (25, 26, 27), (28, 29, 30), (31, 32, 33), (34, 35, 36)
+}
+
+VALID_TRIOS = {
+    (0, 1, 2), (0, 2, 3)
+}
+
+VALID_CORNERS = {
+    (1, 2, 4, 5), (2, 3, 5, 6), (4, 5, 7, 8), (5, 6, 8, 9),
+    (7, 8, 10, 11), (8, 9, 11, 12), (10, 11, 13, 14), (11, 12, 14, 15),
+    (13, 14, 16, 17), (14, 15, 17, 18), (16, 17, 19, 20), (17, 18, 20, 21),
+    (19, 20, 22, 23), (20, 21, 23, 24), (22, 23, 25, 26), (23, 24, 26, 27),
+    (25, 26, 28, 29), (26, 27, 29, 30), (28, 29, 31, 32), (29, 30, 32, 33),
+    (31, 32, 34, 35), (32, 33, 35, 36)
+}
+
+VALID_FIRST_FOUR = {
+    (0, 1, 2, 3)
+}
+
+VALID_SIX_LINES = {
+    (1, 2, 3, 4, 5, 6), (4, 5, 6, 7, 8, 9), (7, 8, 9, 10, 11, 12),
+    (10, 11, 12, 13, 14, 15), (13, 14, 15, 16, 17, 18), (16, 17, 18, 19, 20, 21),
+    (19, 20, 21, 22, 23, 24), (22, 23, 24, 25, 26, 27), (25, 26, 27, 28, 29, 30),
+    (28, 29, 30, 31, 32, 33), (31, 32, 33, 34, 35, 36)
+}
+
 active_rounds = {}
 rounds_lock = threading.Lock()
 
@@ -91,7 +132,7 @@ def format_money(amount):
 def get_user_data(chat_id, user_id):
     res = (
         supabase.table("EUusers")
-        .select("balance, last_salary")
+        .select("balance, last_salary, username")
         .eq("chat_id", str(chat_id))
         .eq("user_id", str(user_id))
         .execute()
@@ -101,30 +142,40 @@ def get_user_data(chat_id, user_id):
     return None
 
 
-def register_user_if_not_exists(chat_id, user_id):
-    data = get_user_data(chat_id, user_id)
-    if data is None:
-        try:
-            supabase.table("EUusers").insert(
-                {
-                    "chat_id": str(chat_id),
-                    "user_id": str(user_id),
-                }
-            ).execute()
-        except Exception:
-            supabase.table("EUusers").insert(
-                {
-                    "chat_id": str(chat_id),
-                    "user_id": str(user_id),
-                    "balance": 2000,
-                }
-            ).execute()
-        data = get_user_data(chat_id, user_id)
-    return data
+def register_user_if_not_exists(chat_id, user_id, first_name=None):
+    """Регистрирует пользователя или обновляет его имя в базе данных"""
+    res = (
+        supabase.table("EUusers")
+        .select("balance, last_salary, username")
+        .eq("chat_id", str(chat_id))
+        .eq("user_id", str(user_id))
+        .execute()
+    )
+    
+    if res.data:
+        if first_name and res.data[0].get("username") != first_name:
+            supabase.table("EUusers").update({"username": first_name}).eq(
+                "chat_id", str(chat_id)
+            ).eq("user_id", str(user_id)).execute()
+        return res.data[0]
+    
+    new_row = {
+        "chat_id": str(chat_id),
+        "user_id": str(user_id),
+        "balance": 2000,
+        "username": first_name if first_name else f"Игрок {user_id}"
+    }
+    try:
+        supabase.table("EUusers").insert(new_row).execute()
+    except Exception:
+        new_row.pop("balance", None)
+        supabase.table("EUusers").insert(new_row).execute()
+        
+    return get_user_data(chat_id, user_id)
 
 
-def update_user_balance(chat_id, user_id, amount):
-    current_data = register_user_if_not_exists(chat_id, user_id)
+def update_user_balance(chat_id, user_id, amount, first_name=None):
+    current_data = register_user_if_not_exists(chat_id, user_id, first_name)
     new_balance = current_data["balance"] + amount
     supabase.table("EUusers").update({"balance": new_balance}).eq(
         "chat_id", str(chat_id)
@@ -132,7 +183,8 @@ def update_user_balance(chat_id, user_id, amount):
     return new_balance
 
 
-def update_user_salary_time(chat_id, user_id, new_balance, time_str):
+def update_user_salary_time(chat_id, user_id, new_balance, time_str, first_name=None):
+    register_user_if_not_exists(chat_id, user_id, first_name)
     supabase.table("EUusers").update({
         "balance": new_balance,
         "last_salary": time_str
@@ -198,6 +250,7 @@ def cmd_start(message):
         "• Посмотреть свой счет: `баланс`\n"
         "• Получить бонус: `зарплата`\n"
         "• Посмотреть шпаргалку: `шпора`\n"
+        "• Посмотреть вторую шпаргалку: `вторая шпора`\n"
         "• Правила и виды ставок: /rules\n"
         "• Синонимы к ставкам: /synonyms\n"
         "• Топ игроков: /eutop\n\n"
@@ -221,7 +274,20 @@ def cmd_info(message):
         "• Множитель: <b>3x</b> | Шанс: <b>32.43%</b>\n\n"
         "Колонки (<code>к1</code>, <code>к2</code>, <code>к3</code>)\n"
         "• Множитель: <b>3x</b> | Шанс: <b>32.43%</b>\n\n"
-        "🎯 <b>Точное число</b> (от <code>0</code> до <code>36</code>)\n"
+        "🎯 <b>Внутренние ставки:</b>\n\n"
+        "Шестерка (пример <code>7,8,9,10,11,12</code>)\n"
+        "• Множитель: <b>6x</b> | Шанс: <b>16.22%</b>\n\n"
+        "Уголок (пример <code>10-14</code>)\n"
+        "• Множитель: <b>9x</b> | Шанс: <b>10.81%</b>\n\n"
+        "Первая четверка (<code>0,1,2,3</code>)\n"
+        "• Множитель: <b>9x</b> | Шанс: <b>10.81%</b>\n\n"
+        "Трио (<code>0,1,2</code> или <code>0,2,3</code>)\n"
+        "• Множитель: <b>12x</b> | Шанс: <b>8.11%</b>\n\n"
+        "Стрит (пример <code>7,8,9</code>)\n"
+        "• Множитель: <b>12x</b> | Шанс: <b>8.11%</b>\n\n"
+        "Сплит (пример <code>9,12</code>)\n"
+        "• Множитель: <b>18x</b> | Шанс: <b>5.41%</b>\n\n"
+        "🏆 <b>Точное число</b> (от <code>0</code> до <code>36</code>)\n"
         "• Множитель: <b>36x</b> | Шанс: <b>2.70%</b>"
     )
     bot.reply_to(message, text, parse_mode="HTML")
@@ -237,7 +303,8 @@ def cmd_synonyms(message):
         "📉 1-18: <code>1-18</code>, <code>малые</code>, <code>низ</code>\n"
         "📈 19-36: <code>19-36</code>, <code>большие</code>, <code>верх</code>\n"
         "📊 Дюжины: <code>д1</code>, <code>д2</code>, <code>д3</code>\n"
-        "📊 Колонки: <code>к1</code>, <code>к2</code>, <code>к3</code>"
+        "📊 Колонки: <code>к1</code>, <code>к2</code>, <code>к3</code>\n"
+        "💡 Вводить числа для внутренних ставок можно в любом порядке, к примеру сплит <code>4,5</code> то же самое что <code>5,4</code>"
     )
     bot.reply_to(message, text, parse_mode="HTML")
 
@@ -250,8 +317,20 @@ def send_cheat_sheet(message):
                 photo=photo
             )
     except Exception as e:
-        print(f"Ошибка: {e}")  # Эта строчка выведет реальную причину в консоль
+        print(f"Ошибка: {e}")
         bot.reply_to(message, "❌ Не удалось отправить шпаргалку.")
+
+@bot.message_handler(func=lambda m: m.text and m.text.lower().strip() in ["вторая шпора", "вторая шпаргалка", "шпора 2", "шпаргалка 2", "2 шпора", "2 шпаргалка"])
+def send_cheat_sheet_2(message):
+    try:
+        with open('shpora2.jpg', 'rb') as photo:
+            bot.send_photo(
+                chat_id=message.chat.id,
+                photo=photo
+            )
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        bot.reply_to(message, "❌ Не удалось отправить вторую шпаргалку.")
         
 @bot.message_handler(commands=["eutop", "топ"])
 def cmd_eutop(message):
@@ -259,7 +338,7 @@ def cmd_eutop(message):
     try:
         res = (
             supabase.table("EUusers")
-            .select("user_id", "balance")
+            .select("user_id, balance, username")
             .eq("chat_id", str(chat_id))
             .gt("balance", 0)
             .order("balance", desc=True)
@@ -274,18 +353,13 @@ def cmd_eutop(message):
         for idx, row in enumerate(res.data, start=1):
             uid = int(row["user_id"])
             bal = row["balance"]
+            name = row.get("username") or f"Игрок {uid}"
             
-            try:
-                member = bot.get_chat_member(chat_id, uid)
-                name = member.user.first_name
-            except Exception:
-                name = f"Игрок {uid}"
-                
-            # Здесь убрали ссылки — теперь выводятся просто имя и баланс
             text += f"{idx}. {name} • 🪙 **{format_money(bal)}**\n"
             
         bot.reply_to(message, text, parse_mode="Markdown")
     except Exception as e:
+        print(f"Ошибка топа: {e}")
         bot.reply_to(message, "❌ Не удалось загрузить топ игроков.")
 
 # --- ОБРАБОТКА БАЛАНСА И ЗАРПЛАТЫ ---
@@ -296,7 +370,7 @@ def handle_balance(message):
     chat_id = message.chat.id
     user_id = message.from_user.id
     first_name = message.from_user.first_name
-    user_data = register_user_if_not_exists(chat_id, user_id)
+    user_data = register_user_if_not_exists(chat_id, user_id, first_name)
     bal = user_data["balance"]
 
     text = (
@@ -314,7 +388,7 @@ def handle_salary(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
-    user_data = register_user_if_not_exists(chat_id, user_id)
+    user_data = register_user_if_not_exists(chat_id, user_id, first_name)
     last_salary_str = user_data.get("last_salary")
     
     now = datetime.now(timezone.utc)
@@ -346,7 +420,7 @@ def handle_salary(message):
             pass
 
     new_bal = user_data["balance"] + SALARY_AMOUNT
-    update_user_salary_time(chat_id, user_id, new_bal, now.isoformat())
+    update_user_salary_time(chat_id, user_id, new_bal, now.isoformat(), first_name)
     
     text = (
         f"🎁 Вы получили зарплату! Начислено 🪙 **{format_money(SALARY_AMOUNT)}**\n\n"
@@ -389,15 +463,15 @@ def handle_text_messages(message):
         if amount <= 0:
             return
 
-        sender_data = register_user_if_not_exists(chat_id, from_user.id)
+        sender_data = register_user_if_not_exists(chat_id, from_user.id, from_user.first_name)
         if sender_data["balance"] < amount:
             bot.reply_to(message, "❌ У вас недостаточно средств для перевода.")
             return
 
-        register_user_if_not_exists(chat_id, target_user_id)
+        register_user_if_not_exists(chat_id, target_user_id, target_name)
 
-        update_user_balance(chat_id, from_user.id, -amount)
-        update_user_balance(chat_id, target_user_id, amount)
+        update_user_balance(chat_id, from_user.id, -amount, from_user.first_name)
+        update_user_balance(chat_id, target_user_id, amount, target_name)
 
         sender_mention = f"[{from_user.first_name}](tg://user?id={from_user.id})"
         msg_text = f"{sender_mention} передал {target_mention} 🪙 **{format_money(amount)}**"
@@ -414,13 +488,55 @@ def handle_text_messages(message):
     if not sum_str.isdigit():
         return
 
-    raw_bet = " ".join(parts[1:]).lower().replace("ё", "е")
+    raw_bet = " ".join(parts[1:]).lower().replace("ё", "е").strip()
 
     normalized_bet = None
+    bet_type = None
+
+    # 1. Проверка внешних ставок и синонимов
     if raw_bet in BET_SYNONYMS:
         normalized_bet = BET_SYNONYMS[raw_bet]
+        bet_type = "external"
+
+    # 2. Проверка точного числа (от 0 до 36)
     elif raw_bet.isdigit() and 0 <= int(raw_bet) <= 36:
         normalized_bet = str(int(raw_bet))
+        bet_type = "exact"
+
+    # 3. Проверка внутренних ставок через дефис (уголки, например 10-14)
+    elif "-" in raw_bet and "," not in raw_bet:
+        dash_parts = raw_bet.split("-")
+        if len(dash_parts) == 2 and dash_parts[0].strip().isdigit() and dash_parts[1].strip().isdigit():
+            n1, n2 = int(dash_parts[0].strip()), int(dash_parts[1].strip())
+            if abs(n1 - n2) == 4 and 0 <= n1 <= 36 and 0 <= n2 <= 36:
+                min_n = min(n1, n2)
+                corner_tuple = (min_n, min_n + 1, min_n + 3, min_n + 4)
+                if corner_tuple in VALID_CORNERS:
+                    normalized_bet = f"corner_{'_'.join(map(str, corner_tuple))}"
+                    bet_type = "corner"
+
+    # 4. Проверка внутренних ставок через запятую (сплит, стрит, трио, первая четверка, шестерка)
+    elif "," in raw_bet:
+        try:
+            comma_parts = tuple(sorted([int(p.strip()) for p in raw_bet.split(",") if p.strip().isdigit()]))
+            
+            if comma_parts in VALID_SPLITS:
+                normalized_bet = f"split_{'_'.join(map(str, comma_parts))}"
+                bet_type = "split"
+            elif comma_parts in VALID_STREETS:
+                normalized_bet = f"street_{'_'.join(map(str, comma_parts))}"
+                bet_type = "street"
+            elif comma_parts in VALID_TRIOS:
+                normalized_bet = f"trio_{'_'.join(map(str, comma_parts))}"
+                bet_type = "trio"
+            elif comma_parts in VALID_FIRST_FOUR:
+                normalized_bet = f"first_four_{'_'.join(map(str, comma_parts))}"
+                bet_type = "first_four"
+            elif comma_parts in VALID_SIX_LINES:
+                normalized_bet = f"six_line_{'_'.join(map(str, comma_parts))}"
+                bet_type = "six_line"
+        except Exception:
+            pass
 
     if not normalized_bet:
         return
@@ -434,20 +550,40 @@ def handle_text_messages(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
 
-    user_data = register_user_if_not_exists(chat_id, user_id)
+    user_data = register_user_if_not_exists(chat_id, user_id, first_name)
     current_bal = user_data["balance"]
     
     if current_bal < amount:
         bot.reply_to(message, "❌ Вам не хватает денег для ставки")
         return
 
-    update_user_balance(chat_id, user_id, -amount)
+    update_user_balance(chat_id, user_id, -amount, first_name)
 
-    if normalized_bet.isdigit():
+    # Красивое имя ставки для подтверждения в чате
+    if bet_type == "exact":
         readable_name = f"число *{normalized_bet}*"
-    else:
+    elif bet_type == "external":
         bet_display = READABLE_BET_NAMES.get(normalized_bet, normalized_bet)
         readable_name = f"*{bet_display}*"
+    elif bet_type == "split":
+        parts_s = normalized_bet.replace("split_", "").split("_")
+        readable_name = f"сплит *{parts_s[0]}, {parts_s[1]}*"
+    elif bet_type == "corner":
+        parts_c = normalized_bet.replace("corner_", "").split("_")
+        readable_name = f"уголок *{parts_c[0]}, {parts_c[1]}, {parts_c[2]}, {parts_c[3]}*"
+    elif bet_type == "street":
+        parts_st = normalized_bet.replace("street_", "").split("_")
+        readable_name = f"стрит *{parts_st[0]}, {parts_st[1]}, {parts_st[2]}*"
+    elif bet_type == "trio":
+        parts_tr = normalized_bet.replace("trio_", "").split("_")
+        readable_name = f"трио *{parts_tr[0]}, {parts_tr[1]}, {parts_tr[2]}*"
+    elif bet_type == "first_four":
+        readable_name = "первую четверку *0, 1, 2, 3*"
+    elif bet_type == "six_line":
+        parts_sx = normalized_bet.replace("six_line_", "").split("_")
+        readable_name = f"шестерку *{', '.join(parts_sx)}*"
+    else:
+        readable_name = f"{raw_bet}"
 
     bot.reply_to(
         message,
@@ -473,6 +609,7 @@ def handle_text_messages(message):
                 "first_name": first_name,
                 "amount": amount,
                 "bet": normalized_bet,
+                "bet_type": bet_type,
             }
         )
 
@@ -526,48 +663,62 @@ def finish_round(chat_id, target_chat_id):
         uid = b["user_id"]
         user_names[uid] = b["first_name"]
         bet_val = b["bet"]
+        bet_type = b.get("bet_type")
         amount = b["amount"]
         won = 0
 
-        if bet_val.isdigit():
+        # Расчет выигрышей в зависимости от типа ставки
+        if bet_type == "exact":
             if int(bet_val) == winning_number:
                 won = amount * 36
-        elif bet_val == "красное":
-            if color == "red":
+        elif bet_type == "external":
+            if bet_val == "красное" and color == "red":
                 won = amount * 2
-        elif bet_val == "черное":
-            if color == "black":
+            elif bet_val == "черное" and color == "black":
                 won = amount * 2
-        elif bet_val == "чет":
-            if winning_number != 0 and winning_number % 2 == 0:
+            elif bet_type == "чет" and winning_number != 0 and winning_number % 2 == 0:
                 won = amount * 2
-        elif bet_val == "нечет":
-            if winning_number != 0 and winning_number % 2 != 0:
+            elif bet_val == "нечет" and winning_number != 0 and winning_number % 2 != 0:
                 won = amount * 2
-        elif bet_val == "1-18":
-            if 1 <= winning_number <= 18:
+            elif bet_val == "1-18" and 1 <= winning_number <= 18:
                 won = amount * 2
-        elif bet_val == "19-36":
-            if 19 <= winning_number <= 36:
+            elif bet_val == "19-36" and 19 <= winning_number <= 36:
                 won = amount * 2
-        elif bet_val == "д1":
-            if 1 <= winning_number <= 12:
+            elif bet_val == "д1" and 1 <= winning_number <= 12:
                 won = amount * 3
-        elif bet_val == "д2":
-            if 13 <= winning_number <= 24:
+            elif bet_val == "д2" and 13 <= winning_number <= 24:
                 won = amount * 3
-        elif bet_val == "д3":
-            if 25 <= winning_number <= 36:
+            elif bet_val == "д3" and 25 <= winning_number <= 36:
                 won = amount * 3
-        elif bet_val == "к1":
-            if winning_number != 0 and winning_number % 3 == 1:
+            elif bet_val == "к1" and winning_number != 0 and winning_number % 3 == 1:
                 won = amount * 3
-        elif bet_val == "к2":
-            if winning_number != 0 and winning_number % 3 == 2:
+            elif bet_val == "к2" and winning_number != 0 and winning_number % 3 == 2:
                 won = amount * 3
-        elif bet_val == "к3":
-            if winning_number != 0 and winning_number % 3 == 0:
+            elif bet_val == "к3" and winning_number != 0 and winning_number % 3 == 0:
                 won = amount * 3
+        elif bet_type == "split":
+            nums = [int(x) for x in bet_val.replace("split_", "").split("_")]
+            if winning_number in nums:
+                won = amount * 18
+        elif bet_type == "corner":
+            nums = [int(x) for x in bet_val.replace("corner_", "").split("_")]
+            if winning_number in nums:
+                won = amount * 9
+        elif bet_type == "street":
+            nums = [int(x) for x in bet_val.replace("street_", "").split("_")]
+            if winning_number in nums:
+                won = amount * 12
+        elif bet_type == "trio":
+            nums = [int(x) for x in bet_val.replace("trio_", "").split("_")]
+            if winning_number in nums:
+                won = amount * 12
+        elif bet_type == "first_four":
+            if winning_number in {0, 1, 2, 3}:
+                won = amount * 9
+        elif bet_type == "six_line":
+            nums = [int(x) for x in bet_val.replace("six_line_", "").split("_")]
+            if winning_number in nums:
+                won = amount * 6
 
         if won > 0:
             user_payouts[uid] = user_payouts.get(uid, 0) + won
@@ -577,7 +728,7 @@ def finish_round(chat_id, target_chat_id):
     if user_payouts:
         result_text += "*Победители:*\n"
         for uid, total_win in user_payouts.items():
-            update_user_balance(chat_id, uid, total_win)
+            update_user_balance(chat_id, uid, total_win, user_names.get(uid))
             name = user_names[uid]
             result_text += (
                 f"[{name}](tg://user?id={uid}) — Выиграл 🪙 **{format_money(total_win)}**\n"
