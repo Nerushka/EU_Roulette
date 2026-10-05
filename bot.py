@@ -332,6 +332,17 @@ def send_cheat_sheet_2(message):
         print(f"Ошибка: {e}")
         bot.reply_to(message, "❌ Не удалось отправить вторую шпаргалку.")
         
+def escape_md(text: str) -> str:
+    """Экранирует спецсимволы Markdown"""
+    if not text:
+        return ""
+    # Заменяем спецсимволы по одному
+    text = text.replace("_", "\\_")
+    text = text.replace("*", "\\*")
+    text = text.replace("`", "\\`")
+    text = text.replace("[", "\\[")
+    return text
+
 @bot.message_handler(commands=["eutop", "топ"])
 def cmd_eutop(message):
     chat_id = message.chat.id
@@ -349,17 +360,23 @@ def cmd_eutop(message):
             bot.reply_to(message, "📊 В этом чате пока нет игроков в рейтинге.")
             return
 
-        text = "**Топ лучших игроков в чате**\n\n"
+        text = "🏆 **Топ лучших игроков в чате**\n\n"
         for idx, row in enumerate(res.data, start=1):
             uid = int(row["user_id"])
-            bal = row["balance"]
-            name = row.get("username") or f"Игрок {uid}"
             
-            text += f"{idx}. {name} • 🪙 **{format_money(bal)}**\n"
+            # Защита от NULL в балансе: если None, ставим 0
+            bal = row.get("balance") or 0
+            
+            raw_name = row.get("username") or f"Игрок {uid}"
+            # Защита от спецсимволов в никнейме
+            safe_name = escape_md(raw_name)
+            
+            text += f"{idx}. {safe_name} • 🪙 **{format_money(bal)}**\n"
             
         bot.reply_to(message, text, parse_mode="Markdown")
     except Exception as e:
-        print(f"Ошибка топа: {e}")
+        # Теперь в логах Render ты увидишь ТОЧНЫЙ текст ошибки, если что-то случится!
+        print(f"❌ Ошибка отправки/формирования топа: {type(e).__name__} — {e}")
         bot.reply_to(message, "❌ Не удалось загрузить топ игроков.")
 
 # --- ОБРАБОТКА БАЛАНСА И ЗАРПЛАТЫ ---
